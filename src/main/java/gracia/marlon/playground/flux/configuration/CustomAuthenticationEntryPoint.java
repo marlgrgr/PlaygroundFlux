@@ -1,9 +1,12 @@
 package gracia.marlon.playground.flux.configuration;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.graphql.execution.ErrorType;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -16,6 +19,8 @@ import org.springframework.web.server.ServerWebExchange;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import graphql.GraphQLError;
+import graphql.GraphqlErrorBuilder;
 import reactor.core.publisher.Mono;
 
 @Component
@@ -42,8 +47,35 @@ public class CustomAuthenticationEntryPoint implements ServerAuthenticationEntry
 		headers.add("Access-Control-Allow-Headers", "Authorization, Content-Type");
 		headers.add("Access-Control-Allow-Credentials", "true");
 
-		response.setStatusCode(HttpStatus.UNAUTHORIZED);
 		response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+		if (exchange.getRequest().getURI().getPath().contains("/graphql")) {
+			Map<String, Object> extensions = new HashMap<>();
+			extensions.put("message", "Unauthorized: authentication is required.");
+			extensions.put("code", "AUTH-0020");
+			extensions.put("httpCode", 401);
+
+			ErrorType errorType = ErrorType.UNAUTHORIZED;
+
+			GraphQLError graphError = GraphqlErrorBuilder.newError()
+					.message("Unauthorized: authentication is required.").errorType(errorType).extensions(extensions)
+					.build();
+
+			Map<String, Object> errorGraphDetails = graphError.toSpecification();
+			Map<String, Object> responseMap = new HashMap<String, Object>();
+			List<Object> errorMap = new ArrayList<Object>();
+			errorMap.add(errorGraphDetails);
+			responseMap.put("errors", errorMap);
+			response.setStatusCode(HttpStatus.OK);
+			try {
+				byte[] bytes = objectMapper.writeValueAsBytes(responseMap);
+				DataBuffer buffer = response.bufferFactory().wrap(bytes);
+				return response.writeWith(Mono.just(buffer));
+			} catch (JsonProcessingException e) {
+				return Mono.error(e);
+			}
+		}
+
+		response.setStatusCode(HttpStatus.UNAUTHORIZED);
 
 		Map<String, Object> errorDetails = new HashMap<>();
 		errorDetails.put("message", "Unauthorized: authentication is required.");

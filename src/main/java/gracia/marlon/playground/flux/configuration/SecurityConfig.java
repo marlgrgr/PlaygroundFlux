@@ -27,6 +27,7 @@ public class SecurityConfig {
 		return http.csrf(ServerHttpSecurity.CsrfSpec::disable)
 				.authorizeExchange(exchanges -> exchanges.pathMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 						.pathMatchers("/api/v1/auth/**").permitAll().pathMatchers("/api/v1/**").authenticated()
+						.pathMatchers("/graphql").authenticated()
 						.anyExchange().permitAll())
 				.securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
 				.exceptionHandling(exceptionHandling -> exceptionHandling

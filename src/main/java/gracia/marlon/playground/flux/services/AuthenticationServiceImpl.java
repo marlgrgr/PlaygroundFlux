@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import gracia.marlon.playground.flux.dtos.AuthRequestDTO;
 import gracia.marlon.playground.flux.dtos.ChangePasswordDTO;
+import gracia.marlon.playground.flux.dtos.UserDTO;
 import gracia.marlon.playground.flux.exception.RestException;
 import gracia.marlon.playground.flux.util.SharedConstants;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +64,11 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 			try {
 				String username = this.jwtService.extractUsername(token);
 				Long userId = this.jwtService.extractUserId(token);
+				UserDTO userDTO = new UserDTO();
+				userDTO.setUsername(username);
+				if(!this.jwtService.isTokenValid(token, userDTO)) {
+					throw new RestException("Token is not valid", "AUTH-0016", HttpStatus.BAD_REQUEST);
+				}
 				return Tuples.of(username, userId);
 			} catch (Exception e) {
 				throw new RestException("Token is not valid", "AUTH-0016", HttpStatus.BAD_REQUEST);

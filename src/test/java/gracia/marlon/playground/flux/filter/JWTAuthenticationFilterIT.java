@@ -1,13 +1,20 @@
 package gracia.marlon.playground.flux.filter;
 
+import static org.junit.Assert.assertEquals;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import gracia.marlon.playground.flux.configuration.AbstractIntegrationBase;
 import gracia.marlon.playground.flux.dtos.AuthRequestDTO;
@@ -20,6 +27,9 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 
 public class JWTAuthenticationFilterIT extends AbstractIntegrationBase {
+
+	@Autowired
+	private ObjectMapper objectMapper;
 
 	@Test
 	void JWTWithoutSubject() throws Exception {
@@ -38,6 +48,7 @@ public class JWTAuthenticationFilterIT extends AbstractIntegrationBase {
 				.header("Authorization", "Bearer " + token).exchange().expectStatus().isUnauthorized();
 	}
 
+	@SuppressWarnings("unchecked")
 	@Test
 	void JWTChangePasswordRequired() throws Exception {
 
@@ -60,6 +71,38 @@ public class JWTAuthenticationFilterIT extends AbstractIntegrationBase {
 
 		webTestClient.get().uri("/api/v1/users").accept(MediaType.APPLICATION_JSON)
 				.header("Authorization", "Bearer " + token).exchange().expectStatus().isForbidden();
+
+		String queryStr = """
+				query GetUsers {
+				    getUsers {
+				        page
+				        totalPages
+				        totalResults
+				        results {
+				            id
+				            passwordChangeRequired
+				            fullname
+				            username
+				        }
+				    }
+				}
+				""";
+
+		String query = "{\"query\": \"" + queryStr.replace("\"", "\\\"").replace("\t", " ").replace("\n", "") + "\"}";
+
+		Map<String, Object> responseMap = webTestClient.post().uri("/graphql")
+				.header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+				.bodyValue(query).exchange().expectStatus().isOk()
+				.expectBody(new ParameterizedTypeReference<Map<String, Object>>() {
+				}).returnResult().getResponseBody();
+
+		List<Map<String, Object>> errorList = objectMapper.convertValue(responseMap.get("errors"),
+				new TypeReference<List<Map<String, Object>>>() {
+				});
+
+		Map<String, Object> extensionsMap = (Map<String, Object>) errorList.getFirst().get("extensions");
+
+		assertEquals("403", extensionsMap.get("httpCode").toString());
 
 		PagedResponse<UserDTO> pagedResponse = webTestClient.get().uri("/api/v1/users")
 				.accept(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + this.getToken()).exchange()
