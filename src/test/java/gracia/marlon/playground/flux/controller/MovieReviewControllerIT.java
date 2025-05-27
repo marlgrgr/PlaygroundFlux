@@ -18,13 +18,22 @@ import gracia.marlon.playground.flux.dtos.PagedResponse;
 import gracia.marlon.playground.flux.model.Movie;
 import gracia.marlon.playground.flux.model.MovieReview;
 import gracia.marlon.playground.flux.repository.MovieRepository;
+import gracia.marlon.playground.flux.repository.MovieReviewRepository;
+import gracia.marlon.playground.flux.services.CacheService;
 
 public class MovieReviewControllerIT extends AbstractIntegrationBase {
 	@Autowired
 	private MovieRepository movieRepository;
 
+	@Autowired
+	private MovieReviewRepository movieReviewRepository;
+
+	@Autowired
+	private CacheService cacheService;
+
 	@BeforeAll
 	private void setUpMongoRepository() {
+		this.movieReviewRepository.deleteAll().block();
 		this.movieRepository.deleteAll().block();
 
 		List<Integer> genreIdsList = new ArrayList<Integer>();
@@ -46,6 +55,12 @@ public class MovieReviewControllerIT extends AbstractIntegrationBase {
 		movie.setVoteCount(0.0);
 
 		this.movieRepository.save(movie).block();
+		this.cacheService.evictCache("MovieReviewService_getMovieReviews").block();
+		this.cacheService.evictCache("MovieReviewService_getMovieReviewsByMovie").block();
+		this.cacheService.evictCache("MovieReviewService_getMovieReviewByID").block();
+		this.cacheService.evictCache("Flux_MovieReviewService_getMovieReviews").block();
+		this.cacheService.evictCache("Flux_MovieReviewService_getMovieReviewsByMovie").block();
+		this.cacheService.evictCache("Flux_MovieReviewService_getMovieReviewByID").block();
 	}
 
 	@Test
