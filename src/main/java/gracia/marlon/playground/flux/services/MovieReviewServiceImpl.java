@@ -68,7 +68,7 @@ public class MovieReviewServiceImpl implements MovieReviewService {
 				.with(Sort.by(Sort.Order.desc("createOn"))).skip(pageDTO.getOffset()).limit(pageDTO.getPageSize());
 
 		Flux<MovieReview> movieReviewList = this.mongoTemplate.find(query, MovieReview.class);
-		Mono<Long> totalMovieReviewList = this.mongoTemplate.count(new Query(), MovieReview.class);
+		Mono<Long> totalMovieReviewList = this.mongoTemplate.count(new Query().addCriteria(Criteria.where("movieId").is(movieId)), MovieReview.class);
 
 		return movieReviewList.collectList()
 				.flatMap(movieReview -> totalMovieReviewList.map(total -> PageableUtil.getPagedResponse(pageDTO, total,
