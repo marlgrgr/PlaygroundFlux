@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playground-flux
+  namespace: playground
+spec:
+  replicas: ${REPLICAS_FLUX}
+  selector:
+    matchLabels:
+      app: playground
+      type: flux
+  template:
+    metadata:
+      labels:
+        app: playground
+        type: flux
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8081"
+    spec:
+      containers:
+        - name: playground-flux
+          image: playground-flux:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          env:
+            - name: JAVA_OPTS
+              valueFrom:
+                secretKeyRef:
+                  name: ${SECRET_NAME_FLUX}
+                  key: JAVA_OPTS
