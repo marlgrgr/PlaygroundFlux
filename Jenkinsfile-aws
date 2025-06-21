@@ -1,0 +1,179 @@
+pipeline {
+    agent any
+    
+    environment {
+        ENVIRONMENT = "aws"
+        CONFIG_FILE_ID = "playground-flux-application-properties-${ENVIRONMENT}"
+        REDISSON_CONFIG_FILE_ID = "playground-flux-redisson-${ENVIRONMENT}"
+        AWS_CREDENTIALS_ID = "playground-aws-credentials-${ENVIRONMENT}"
+        DOCKER_IMAGE = "playground-flux"
+        APP_NAME = "playground-flux"
+    }
+    
+    tools {
+        maven 'Maven 3'
+        jdk 'JDK 21'
+    }
+    
+    stages {
+		stage('Load AWS Configuration') {
+            steps {
+                script {
+                    withCredentials([
+                        string(credentialsId: "playground-aws-region-${ENVIRONMENT}", variable: 'AWS_REGION'),
+                        string(credentialsId: "playground-ecr-repository-flux-${ENVIRONMENT}", variable: 'ECR_REPOSITORY_NAME'),
+						string(credentialsId: "playground-ecr-repository-flux-uri-${ENVIRONMENT}", variable: 'ECR_REPOSITORY_URI'),
+                        string(credentialsId: "playground-ecs-cluster-${ENVIRONMENT}", variable: 'ECS_CLUSTER_NAME'),
+                        string(credentialsId: "playground-ecs-service-playground-flux-${ENVIRONMENT}", variable: 'ECS_SERVICE_NAME')
+                    ]) {
+                        env.AWS_REGION = "${AWS_REGION}"
+                        env.ECR_REPOSITORY_NAME = "${ECR_REPOSITORY_NAME}"
+						env.ECR_REPOSITORY_URI = "${ECR_REPOSITORY_URI}"
+                        env.ECS_CLUSTER_NAME = "${ECS_CLUSTER_NAME}"
+                        env.ECS_SERVICE_NAME = "${ECS_SERVICE_NAME}"
+                        
+                        echo "AWS Configuration loaded"
+                    }
+                }
+            }
+        }
+		
+		stage('AWS Identity Check') {
+            steps {
+                script {
+                    withCredentials([aws(credentialsId: "${AWS_CREDENTIALS_ID}")]) {
+                        sh '''
+                            echo "Checking AWS identity..."
+                            aws sts get-caller-identity
+                            echo "AWS CLI configured successfully"
+                        '''
+                    }
+                }
+            }
+        }
+		
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                sh 'mvn clean package -DskipUnitTest=true'
+            }
+        }
+        stage('Unit Test') {
+            steps {
+                sh 'mvn test'
+            }
+        }
+        stage('Integration Test') {
+            steps {
+                sh 'mvn verify -DskipUnitTest=true -DskipIntegrationTest=false'
+            }
+        }
+        
+        stage('JaCoCo HTML Report') {
+            steps {
+                publishHTML(target: [
+                    reportDir: 'target/site/jacoco',
+                    reportFiles: 'index.html',
+                    reportName: 'JaCoCo Coverage Report',
+                    keepAll: true,
+                    alwaysLinkToLastBuild: true,
+                    allowMissing: false
+                ])
+            }
+        }
+        
+        stage('Prepare Config') {
+            steps {
+                configFileProvider([configFile(fileId: "${CONFIG_FILE_ID}", targetLocation: 'config/application.properties')]) {
+                    echo "Base application properties file loaded from Config File Manager"
+                }
+                
+                configFileProvider([configFile(fileId: "${REDISSON_CONFIG_FILE_ID}", targetLocation: 'config/redisson.yaml')]) {
+                    echo "Redisson file loaded from Config File Manager"
+                }
+            }
+        }
+        
+        stage('ECR Login & Docker Build') {
+            steps {
+                script {
+                    withCredentials([aws(credentialsId: "${AWS_CREDENTIALS_ID}")]) {
+                        sh '''
+                            echo "Logging into ECR..."
+                            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REPOSITORY_NAME}
+                            
+                            echo "Building Docker image..."
+                            docker build -t ${DOCKER_IMAGE} .
+                            docker tag ${DOCKER_IMAGE}:latest ${ECR_REPOSITORY_URI}:latest
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Push to ECR') {
+            steps {
+                script {
+                    withCredentials([aws(credentialsId: "${AWS_CREDENTIALS_ID}")]) {
+                        sh '''
+                            echo "Pushing image to ECR..."
+                            docker push ${ECR_REPOSITORY_URI}:latest
+                            echo "Image pushed successfully to ECR!"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Update ECS Service') {
+            steps {
+                script {
+                    withCredentials([aws(credentialsId: "${AWS_CREDENTIALS_ID}")]) {
+                        sh '''
+                            echo "Updating ECS service..."
+                            aws ecs update-service \
+                                --cluster ${ECS_CLUSTER_NAME} \
+                                --service ${ECS_SERVICE_NAME} \
+                                --force-new-deployment \
+                                --region ${AWS_REGION}
+                            
+                            echo "ECS Service update initiated successfully"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Cleanup Local Images') {
+            steps {
+                script {
+                    sh '''
+                        echo "Cleaning up local Docker images..."
+                        docker rmi ${ECR_REPOSITORY_URI}:latest || true
+                        docker image prune -f
+                    '''
+                }
+            }
+        }
+    }
+	
+    post {
+        always {
+            junit '**/target/surefire-reports/*.xml'
+            junit '**/target/failsafe-reports/*.xml'
+			
+			sh 'rm -f $HOME/.docker/config.json || true'
+        }
+        success {
+            echo 'The pipeline has been completed successfully'
+        }
+        failure {
+            echo 'The pipeline has failed'
+        }
+    }
+}
